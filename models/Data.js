@@ -48,6 +48,4 @@ const dataSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-const Data = mongoose.model('Data', dataSchema);
-
-module.exports = Data;
+module.exports = mongoose.model('Data', dataSchema);

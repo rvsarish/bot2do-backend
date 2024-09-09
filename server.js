@@ -1,7 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 
 const User = require('./models/User');
@@ -10,9 +9,11 @@ const Data = require('./models/Data');
 const app = express();
 const PORT = 5000;
 
+// Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json()); // Using express.json() instead of body-parser
 
+// Database connection
 const connectDB = async () => {
   try {
     await mongoose.connect('mongodb+srv://user1:user123@dashboard.wupgl.mongodb.net/?retryWrites=true&w=majority&appName=Dashboard');
@@ -25,6 +26,7 @@ const connectDB = async () => {
 
 connectDB();
 
+// API Routes
 app.post('/api/users', async (req, res) => {
   const { username, password, role } = req.body;
   try {
@@ -50,20 +52,51 @@ app.get('/api/users', async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 });
+app.get('/api/frequent-words', async (req, res) => {
+  try {
+    const uniqueIds = await Data.distinct('unique_id');
+    const firstNames = await Data.distinct('first_name');
+    const surnames = await Data.distinct('surname');
+    const villages = await Data.distinct('village');
+    const states = await Data.distinct('state');
+    const countries = await Data.distinct('country');
 
+    res.json({
+      unique_id: uniqueIds,
+      first_name: firstNames,
+      surname: surnames,
+      village: villages,
+      state: states,
+      country: countries,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 app.put('/api/users/:id', async (req, res) => {
   const { id } = req.params;
   const { username, password, role } = req.body;
   try {
-    const hashedPassword = password ? await bcrypt.hash(password, 12) : undefined;
     const updateFields = { username, role };
-    if (hashedPassword) updateFields.password = hashedPassword;
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, 12);
+      updateFields.password = hashedPassword;
+    }
 
     const user = await User.findByIdAndUpdate(id, updateFields, { new: true });
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+app.post('/api/datas/bulk-delete', async (req, res) => {
+  const { ids } = req.body; // Array of IDs to be deleted
+  try {
+    await Data.deleteMany({ unique_id: { $in: ids } });
+    res.status(200).json({ message: 'Items deleted successfully.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -118,15 +151,27 @@ app.delete('/api/datas/:unique_id', async (req, res) => {
   }
 });
 
-
 app.get('/api/datas', async (req, res) => {
-  const { page = 1, limit = 10, unique_id = '', first_name = '', surname = '', village = '', address = '', pincode = '', state = '', country = '', phone_no1 = '', phone_no2 = '' } = req.query;
+  const {
+    page = 1,
+    limit = 10,
+    unique_id = '',
+    first_name = '',
+    surname = '',
+    village = '',
+    address = '',
+    pincode = '',
+    state = '',
+    country = '',
+    phone_no1 = '',
+    phone_no2 = '',
+  } = req.query;
 
   try {
     let query = {};
 
     if (unique_id) query.unique_id = unique_id;
-    if (first_name) query.first_name = new RegExp(first_name, 'i'); 
+    if (first_name) query.first_name = new RegExp(first_name, 'i');
     if (surname) query.surname = new RegExp(surname, 'i');
     if (village) query.village = new RegExp(village, 'i');
     if (address) query.address = new RegExp(address, 'i');
@@ -137,13 +182,37 @@ app.get('/api/datas', async (req, res) => {
     if (phone_no2) query.phone_no2 = new RegExp(phone_no2, 'i');
 
     const data = await Data.find(query)
-      .sort({ unique_id: 1 }) 
+      .sort({ unique_id: 1 })
       .skip((page - 1) * limit)
       .limit(Number(limit));
 
     const total = await Data.countDocuments(query);
 
     res.json({ data, total });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// New Endpoint for Unique Values
+app.get('/api/datas/unique/:field', async (req, res) => {
+  try {
+    const field = req.params.field;
+    const uniqueValues = await Data.distinct(field);
+    res.json({ uniqueValues });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Search Endpoint in Popup
+app.get('/api/datas/search/:field', async (req, res) => {
+  try {
+    const field = req.params.field;
+    const { query } = req.query;
+    const regex = new RegExp(query, 'i');
+    const uniqueValues = await Data.distinct(field, { [field]: regex });
+    res.json({ uniqueValues });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -163,15 +232,13 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    const token = 'some_generated_token'; 
+    const token = 'some_generated_token'; // Replace with real token generation logic
 
     res.status(200).json({ token, role: user.role });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
-
-
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
